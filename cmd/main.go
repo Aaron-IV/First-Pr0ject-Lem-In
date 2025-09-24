@@ -49,7 +49,6 @@ func parseG(fileName string) (Graph, int, string, string) {
 			fmt.Println("Number of ants cannot be zero")
 			os.Exit(1)
 		}
-		fmt.Println("############### ", n, " ants #################")
 	}
 	start, end := "", ""
 	flag := "room"
@@ -243,6 +242,25 @@ func main() {
 	} else {
 		fileName = x[1]
 	}
+
+	// НОВАЯ ЛИНИЯ
+	// Echo file: print first line (number of ants) and then whole file
+	dataRaw, err := os.ReadFile(fileName)
+	if err == nil {
+		// Normalize CRLF -> LF same as parseG
+		dataStr := strings.ReplaceAll(string(dataRaw), "\r\n", "\n")
+		lines := strings.Split(dataStr, "\n")
+		if len(lines) > 0 && lines[0] != "" {
+			// print only the first line (number of ants) on its own line
+			fmt.Println(lines[0])
+		}
+		// print full file contents (preserves the exact format)
+		fmt.Print(dataStr)
+		// two blank lines before movements
+		fmt.Println()
+		fmt.Println()
+	} // НОВАЯ ЛИНИЯ
+
 	g, n, start, end := parseG(fileName)
 	bestGroup := g.sendTheAnts(n, start, end)
 	// fmt.Println("Best Valid Group:", bestGroup)
@@ -365,8 +383,4 @@ func main() {
 			break
 		}
 	}
-
-	lib.GraphVisualization(lib.RoomNames, lib.Matrix, visAnts, start, end)
-
-	// fmt.Println("Final Ants:", visAnts)
 }
