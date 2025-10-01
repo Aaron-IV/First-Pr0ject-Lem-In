@@ -7,7 +7,9 @@ func ParseLink(s string) (string, string) {
 	if len(parts) != 2 {
 		return "", ""
 	}
-	return parts[0], parts[1]
+	a := strings.TrimSpace(parts[0])
+	b := strings.TrimSpace(parts[1])
+	return a, b
 }
 
 func Contains(slice []string, item string) bool {
