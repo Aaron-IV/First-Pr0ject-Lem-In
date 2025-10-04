@@ -1,107 +1,116 @@
-# Lem-in
+## Lem-in (Go)
 
-A Go implementation of the Lem-in project: find the optimal way to move ants through a graph from a start room to an end room.
+Поиск оптимального перемещения муравьёв по графу из стартовой комнаты в конечную. В проекте есть два режима:
+- CLI: печать ходов в stdout.
+- Сервер + веб-визуализация: выдаёт JSON и визуализирует движение муравьёв в браузере.
 
 ---
 
-## 1. Usage
+## Структура
+- `cmd/main.go` — CLI-режим (классический вывод шагов).
+- `cmd/server/main.go` — HTTP-сервер, отдаёт статику из `web/` и эндпоинт `/data`.
+- `web/` — фронтенд: `visual.html`, `style.css`, `script.js`, `image/ANTS.svg`.
+- `helpers/` — типы и утилиты.
+- `examples/` — тестовые входные файлы `.txt`.
 
-    ```sh
-    go run cmd/main.go <input_file.txt>
+---
+
+## Формат входного файла (.txt)
+Обязательный, строгий.
+- Первая строка: количество муравьёв (целое > 0).
+- Далее комнаты и координаты: `name X Y`
+  - Директивы: `##start` перед строкой стартовой комнаты и `##end` перед конечной.
+- Далее рёбра: `A-B` (между существующими комнатами).
+- Комментарии `#...` (но не директивы `##...`) игнорируются.
+
+Пример (сокращённый):
+```
+4
+##start
+0 0 3
+2 2 5
+3 4 0
+##end
+1 8 3
+0-2
+2-3
+3-1
+```
+
+Ошибки формата (что не принимается):
+- Неположительное число муравьёв; первая строка не число.
+- Нет `##start` или `##end`.
+- Повторное определение комнаты; неверные координаты.
+- Рёбра к несуществующим комнатам; петли; дубликаты рёбер.
+
+---
+
+## Запуск: CLI
+Выводит исходные данные и последовательность ходов в stdout.
+
+```sh
+go run ./cmd/main.go examples/example02.txt
+```
+
+---
+
+## Запуск: сервер + визуализация
+Вариант 1 (простой, позиционные аргументы):
+
+```sh
+go run ./cmd/server examples/example02.txt :8080
+# затем откройте ссылку из stdout:
+# Open visualization: http://localhost:8080/visual.html?file=examples/example02.txt
+```
+
+Вариант 2 (через флаги, все опциональны):
+
+```sh
+go run ./cmd/server -file examples/example02.txt -addr :8080 -web web
+```
+
+Скрипт быстрого запуска:
+
+```sh
+./start.sh cli   examples/example02.txt         # только CLI
+./start.sh serve examples/example02.txt :8080   # сервер + визуализация
+```
+
+---
+
+## Веб-интерфейс
+- Открыть: `http://localhost:8080/visual.html?file=examples/example02.txt`
+- Кнопки: `Старт`, `Пауза`, `Сброс`.
+- Поддержка SVG-иконки муравья: параметр `ant`/`antImg` в URL.
+  - Примеры: `?ant=MyAnt.svg`, поиск в `web/image/` и `web/images/`.
+
+---
+
+## HTTP API
+- `GET /data?file=<path>`
+  - Вход: относительный путь к `.txt` в пределах проекта (по умолчанию — файл, переданный при запуске сервера).
+  - Успех (`200`):
+    ```json
+    {
+      "rooms": [{"name":"A","x":0,"y":0,"isStart":false,"isEnd":false,"links":["B"]}],
+      "moves": ["L1-A L2-B", "L1-B"]
+    }
     ```
+  - Ошибка (`400`): текст с описанием проблемы формата/данных.
 
-    <input_file.txt> should describe the number of ants, rooms, and links in the required format.
+---
 
-## 2. Screenshot Examples
-Example Input
-```bash
-    9
-    #rooms
-    ##start
-    start 0 3
-    ##end
-    end 10 1
-    C0 1 0
-    C1 2 0
-    C2 3 0
-    C3 4 0
-    I4 5 0
-    I5 6 0
-    A0 1 2
-    A1 2 1
-    A2 4 1
-    B0 1 4
-    B1 2 4
-    E2 6 4
-    D1 6 3
-    D2 7 3
-    D3 8 3
-    H4 4 2
-    H3 5 2
-    F2 6 2
-    F3 7 2
-    F4 8 2
-    G0 1 5
-    G1 2 5
-    G2 3 5
-    G3 4 5
-    G4 6 5
-    H3-F2
-    H3-H4
-    H4-A2
-    start-G0
-    G0-G1
-    G1-G2
-    G2-G3
-    G3-G4
-    G4-D3
-    start-A0
-    A0-A1
-    A0-D1
-    A1-A2
-    A1-B1
-    A2-end
-    A2-C3
-    start-B0
-    B0-B1
-    B1-E2
-    start-C0
-    C0-C1
-    C1-C2
-    C2-C3
-    C3-I4
-    D1-D2
-    D1-F2
-    D2-E2
-    D2-D3
-    D2-F3
-    D3-end
-    F2-F3
-    F3-F4
-    F4-end
-    I4-I5
-    I5-end
-```
-Example Output
-    ###############  4  ants #################
-```bash
-    L1->A0 L2->B0 L3->C0 
-    L1->D1 L2->B1 L3->C1 L4->A0 L5->B0 
-    L1->D2 L2->A1 L3->C2 L4->D1 L5->B1 L6->A0 L7->B0 
-    L1->D3 L2->A2 L3->C3 L4->D2 L5->A1 L6->D1 L7->B1 L8->A0 L9->B0 
-    L1->end L2->end L3->I4 L4->D3 L5->A2 L6->D2 L7->A1 L8->D1 L9->B1 
-    L3->I5 L4->end L5->end L6->D3 L7->A2 L8->D2 L9->A1 
-    L3->end L6->end L7->end L8->D3 L9->A2 
-    L8->end L9->end 
-```
-## 3. Flags
-    Currently, the program does not support command-line flags.
-    You can add flags for visualization or debug output as needed.
+## Валидация и ошибки
+- Сервер валидирует входной файл на старте. При ошибке форматирования — процесс завершится и сервер не поднимется.
+- Ошибки, которые возможны:
+  - Неверное число в первой строке; нуль/отрицательное значение.
+  - Отсутствует `##start`/`##end`.
+  - Некорректные координаты; повторные комнаты; дубли рёбер; рёбра к неизвестным вершинам.
+  - Нет путей от start к end — будет выведено предупреждение в CLI, визуализация покажет граф без движения.
+  - Запрос `/data` с несуществующим `file` — `400 Bad Request`.
+  - Несуществующая иконка муравья — фронтенд нарисует кружок (fallback) и предупредит в консоли.
 
-## 4. Files 
-    cmd/main.go — Main program entry point.
-    helpers/ — Helper functions and types (e.g., parsing, utilities).
-    visual/ — Visualization logic (if implemented).
-    go.mod / go.sum — Go module files.
-    README.md — This documentation file.
-    input_file.txt — Example input file describing the graph.
+---
+
+## Лицензия
+MIT (если требуется, поправьте под свои условия).

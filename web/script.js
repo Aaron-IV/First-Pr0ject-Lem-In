@@ -1,5 +1,3 @@
-
-
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 let width = window.innerWidth;
@@ -15,6 +13,7 @@ let positions = {};
 let animating = false;
 let startRoom = "start"; // будет переопределена из данных
 let antImage = new Image(); // SVG изображение муравья
+let antImageLoaded = false;
 const ANT_SIZE = 24; // размер изображения муравья
 
 const baseColors = [
@@ -33,41 +32,74 @@ function getColorForAnt(name) {
   return `hsl(${hue}, 80%, 50%)`;
 }
 
-// Загружаем SVG изображение муравья
-antImage.onload = function() {
-  console.log('Ant SVG image loaded successfully');
-  // Перерисовываем после загрузки изображения
-  if (data) {
-    draw();
+// Выбор и надёжная загрузка изображения муравья
+function pickAntImageCandidates() {
+  const params = new URLSearchParams(window.location.search);
+  const userAnt = params.get('ant') || params.get('antImg');
+  const candidates = [];
+  if (userAnt) {
+    // если пользователь передал относительный путь/имя
+    candidates.push(userAnt);
+    if (!userAnt.includes('/')) {
+      candidates.push(`image/${userAnt}`);
+      candidates.push(`images/${userAnt}`);
+    }
   }
-};
-antImage.src = '/static/image/ANTS.svg';
+  // дефолтные варианты
+  candidates.push('image/ANTS.svg');
+  candidates.push('images/ANTS.svg');
+  return candidates;
+}
 
-fetch("/data")
-  .then((res) => res.json())
-  .then((json) => {
-    data = json;
-    startRoom = data.rooms.find(r => r.isStart)?.name || "0";
+function loadAntImageWithFallback() {
+  const sources = pickAntImageCandidates();
+  let idx = 0;
+  const tryNext = () => {
+    if (idx >= sources.length) {
+      console.error('Ant image failed to load from all candidates, using circle fallback');
+      antImageLoaded = false;
+      if (data) draw();
+      return;
+    }
+    const src = sources[idx++];
+    const img = new Image();
+    img.onload = function() {
+      antImage = img;
+      antImageLoaded = true;
+      if (data) draw();
+    };
+    img.onerror = function() {
+      console.warn('Failed to load ant image from', src);
+      tryNext();
+    };
+    img.src = src;
+  };
+  tryNext();
+}
 
-    const allX = data.rooms.map(r => r.x);
-    const allY = data.rooms.map(r => r.y);
-    const minX = Math.min(...allX), maxX = Math.max(...allX);
-    const minY = Math.min(...allY), maxY = Math.max(...allY);
+loadAntImageWithFallback();
 
-    const scale = Math.min((width - 200) / (maxX - minX + 1), (height - 200) / (maxY - minY + 1));
-    data.rooms.forEach((room) => {
-      positions[room.name] = {
-        x: (room.x - minX) * scale + 100,
-        y: (room.y - minY) * scale + 100,
-      };
-    });
-    draw();
+function computePositions() {
+  if (!data || !data.rooms || data.rooms.length === 0) return;
+  const allX = data.rooms.map(r => r.x);
+  const allY = data.rooms.map(r => r.y);
+  const minX = Math.min(...allX), maxX = Math.max(...allX);
+  const minY = Math.min(...allY), maxY = Math.max(...allY);
+  const scale = Math.min((width - 200) / (maxX - minX + 1), (height - 200) / (maxY - minY + 1));
+  positions = {};
+  data.rooms.forEach((room) => {
+    positions[room.name] = {
+      x: (room.x - minX) * scale + 100,
+      y: (room.y - minY) * scale + 100,
+    };
   });
+}
 
 function draw() {
   ctx.clearRect(0, 0, width, height);
   if (!data) return;
 
+  // edges
   data.rooms.forEach((room) => {
     const { x, y } = positions[room.name];
     room.links.forEach((link) => {
@@ -81,11 +113,12 @@ function draw() {
     });
   });
 
+  // rooms
   data.rooms.forEach((room) => {
     const { x, y } = positions[room.name];
     ctx.beginPath();
     ctx.arc(x, y, 20, 0, Math.PI * 2);
-    ctx.fillStyle = room.name === startRoom ? "#4caf50" : room.name === "end" ? "#f44336" : "#fff";
+    ctx.fillStyle = room.isStart ? "#4caf50" : room.isEnd ? "#f44336" : "#fff";
     ctx.fill();
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 2;
@@ -97,25 +130,21 @@ function draw() {
     ctx.fillText(room.name, x, y);
   });
 
+  // ants
   for (const [name, info] of Object.entries(ants)) {
     const from = positions[info.from];
     const to = positions[info.to];
     const t = info.progress;
     const x = from.x + (to.x - from.x) * t;
     const y = from.y + (to.y - from.y) * t;
-    
-    // Рисуем SVG изображение муравья
-    if (antImage.complete) {
+    if (antImageLoaded) {
       ctx.drawImage(antImage, x - ANT_SIZE/2, y - ANT_SIZE/2, ANT_SIZE, ANT_SIZE);
     } else {
-      // Fallback: если изображение не загружено, рисуем кружок
       ctx.beginPath();
       ctx.arc(x, y, 10, 0, Math.PI * 2);
       ctx.fillStyle = info.color;
       ctx.fill();
     }
-    
-    // Рисуем имя муравья под изображением
     ctx.fillStyle = "#000";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "center";
@@ -128,7 +157,6 @@ function animateStep(moves) {
   let frame = 0;
   const frames = 20;
   const movingAnts = {};
-
   for (const move of moves) {
     const [ant, to] = move.split("-");
     const from = ants[ant]?.to ?? startRoom;
@@ -140,7 +168,6 @@ function animateStep(moves) {
     };
     movingAnts[ant] = ants[ant];
   }
-
   animating = true;
   const stepInterval = setInterval(() => {
     frame++;
@@ -156,9 +183,8 @@ function animateStep(moves) {
 }
 
 function startAnim() {
-  if (!data || interval) return;
-
-  // 🟢 ДОБАВЛЕНО: начальное размещение всех муравьев в стартовой комнате
+  if (!data) { console.warn('startAnim: data not loaded yet'); return; }
+  if (interval) { console.warn('startAnim: already running'); return; }
   const firstLine = data.moves[0];
   if (firstLine) {
     const firstMoves = firstLine.split(" ");
@@ -173,7 +199,6 @@ function startAnim() {
     }
     draw();
   }
-
   interval = setInterval(() => {
     if (animating || stepIndex >= data.moves.length) return;
     const line = data.moves[stepIndex++];
@@ -201,3 +226,54 @@ function resetAnim() {
   document.getElementById("stepCounter").textContent = `Step: 0`;
   draw();
 }
+
+window.addEventListener('DOMContentLoaded', () => {
+  // кнопки
+  const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  if (startBtn) startBtn.addEventListener('click', () => { console.log('Start clicked'); startAnim(); });
+  if (pauseBtn) pauseBtn.addEventListener('click', () => { console.log('Pause clicked'); pauseAnim(); });
+  if (resetBtn) resetBtn.addEventListener('click', () => { console.log('Reset clicked'); resetAnim(); });
+
+  // загрузка данных
+  const params = new URLSearchParams(window.location.search);
+  const file = params.get('file');
+  const url = file ? `/data?file=${encodeURIComponent(file)}` : '/data';
+
+  const stepCounter = document.getElementById('stepCounter');
+  if (stepCounter) stepCounter.textContent = 'Loading...';
+  const startBtn2 = document.getElementById('startBtn');
+  if (startBtn2) startBtn2.disabled = true;
+
+  fetch(url)
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then((json) => {
+      data = json;
+      startRoom = (data.rooms.find(r => r.isStart) || {}).name || "0";
+      computePositions();
+      if (stepCounter) stepCounter.textContent = 'Step: 0';
+      if (startBtn2) startBtn2.disabled = false;
+      draw();
+    })
+    .catch((err) => {
+      console.error('Failed to load /data', err);
+      if (stepCounter) stepCounter.textContent = 'Load error';
+      if (startBtn2) startBtn2.disabled = true;
+    });
+});
+
+window.addEventListener('resize', () => {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  canvas.width = width;
+  canvas.height = height;
+  if (data) {
+    computePositions();
+    draw();
+  }
+});
+
